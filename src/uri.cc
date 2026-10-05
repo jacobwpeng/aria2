@@ -33,6 +33,10 @@
  */
 /* copyright --> */
 #include "uri.h"
+#include <algorithm>
+#include <sstream>
+#include <vector>
+#include "DlAbortEx.h"
 #include "A2STR.h"
 #include "FeatureConfig.h"
 #include "util.h"
@@ -84,6 +88,162 @@ void UriStruct::swap(UriStruct& other)
 }
 
 void swap(UriStruct& lhs, UriStruct& rhs) { lhs.swap(rhs); }
+
+namespace {
+struct UrlRewriteRule {
+  std::string host;
+  std::string port;
+  std::string target;
+};
+
+std::vector<UrlRewriteRule> urlRewriteRules;
+
+std::string explicitPort(const uri_split_result& parts, const std::string& uri)
+{
+  if (!(parts.field_set & (1 << USR_PORT))) {
+    return "";
+  }
+  // uri_split sets the numeric port and its presence bit, but does not
+  // populate fields[USR_PORT]. Keep the original spelling for exact matching.
+  auto end = uri.find_first_of("/?#", uri.find("://") + 3);
+  if (end == std::string::npos) {
+    end = uri.size();
+  }
+  auto colon = uri.rfind(':', end - 1);
+  return uri.substr(colon + 1, end - colon - 1);
+}
+} // namespace
+
+void configureUrlRewrite(const std::string& rules)
+{
+  std::vector<UrlRewriteRule> parsed;
+  std::istringstream input(rules);
+  std::string line;
+  size_t lineNumber = 0;
+  while (std::getline(input, line)) {
+    ++lineNumber;
+    line = util::strip(line);
+    if (line.empty() || line[0] == '#') {
+      continue;
+    }
+    auto eq = line.find('=');
+    auto source = util::strip(line.substr(0, eq));
+    auto target = eq == std::string::npos ? std::string()
+                                        : util::strip(line.substr(eq + 1));
+    auto sourceUri = "http://" + source;
+    uri_split_result sourceParts{}, targetParts{};
+    UriStruct destination;
+    if (source.empty() || source.find_first_of("@/?#\\*") != std::string::npos ||
+        uri_split(&sourceParts, sourceUri.c_str()) != 0 ||
+        ((sourceParts.field_set & (1 << USR_PORT)) && sourceParts.port == 0) ||
+        target.find_first_of("@?#") != std::string::npos ||
+        std::any_of(line.begin(), line.end(),
+                    [](unsigned char c) { return c < 0x20 || c == 0x7f; }) ||
+        uri_split(&targetParts, target.c_str()) != 0 ||
+        ((targetParts.field_set & (1 << USR_PORT)) && targetParts.port == 0) ||
+        !parse(destination, target) ||
+        (destination.protocol != "http" && destination.protocol != "https") ||
+        destination.dir != "/" || !destination.file.empty()) {
+      throw DL_ABORT_EX(fmt("Invalid url-rewrite rule #%zu; expected "
+                           "HOST[:PORT]=HTTP(S)_ORIGIN", lineNumber));
+    }
+    UrlRewriteRule rule{
+        util::toLower(getFieldString(sourceParts, USR_HOST, sourceUri.c_str())),
+        explicitPort(sourceParts, sourceUri), target};
+    if (!rule.target.empty() && rule.target.back() == '/') {
+      rule.target.pop_back();
+    }
+    for (const auto& previous : parsed) {
+      if (rule.host == previous.host && rule.port == previous.port) {
+        throw DL_ABORT_EX(fmt("Duplicate url-rewrite source in rule #%zu",
+                             lineNumber));
+      }
+    }
+    parsed.push_back(std::move(rule));
+  }
+  // The same URL passes through several core entry points. Reject targets
+  // that would match a source, so repeated rewrites remain idempotent.
+  for (const auto& rule : parsed) {
+    uri_split_result parts{};
+    uri_split(&parts, rule.target.c_str());
+    auto host = util::toLower(getFieldString(parts, USR_HOST, rule.target.c_str()));
+    auto port = explicitPort(parts, rule.target);
+    for (const auto& source : parsed) {
+      if (host == source.host && (source.port.empty() || port == source.port)) {
+        throw DL_ABORT_EX("A url-rewrite target matches a configured source; "
+                          "chained rewrites are not supported");
+      }
+    }
+  }
+  urlRewriteRules.swap(parsed);
+}
+
+std::string rewriteLocalUrl(const std::string& uri)
+{
+  if (urlRewriteRules.empty()) {
+    return uri;
+  }
+  // Match the former AriaNg decorator: strip ASCII controls only when
+  // the normalized authority matches one of the configured sources.
+  auto normalized = uri;
+  normalized.erase(
+      std::remove_if(normalized.begin(), normalized.end(),
+                     [](unsigned char c) { return c < 0x20 || c == 0x7f; }),
+      normalized.end());
+  auto schemeEnd = normalized.find("://");
+  if (schemeEnd == std::string::npos || schemeEnd == 0 ||
+      !util::isAlpha(normalized[0])) {
+    return uri;
+  }
+  for (size_t i = 1; i < schemeEnd; ++i) {
+    auto c = normalized[i];
+    if (!util::isAlpha(c) && !util::isDigit(c) && c != '+' && c != '-' &&
+        c != '.') {
+      return uri;
+    }
+  }
+  auto authorityStart = schemeEnd + 3;
+  auto authorityEnd = normalized.find_first_of("/?#", authorityStart);
+  if (authorityEnd == std::string::npos) {
+    authorityEnd = normalized.size();
+  }
+  auto hostport = normalized.substr(authorityStart,
+                                     authorityEnd - authorityStart);
+  auto at = hostport.rfind('@');
+  if (at != std::string::npos) {
+    hostport.erase(0, at + 1);
+  }
+  std::string host, port;
+  if (!hostport.empty() && hostport[0] == '[') {
+    auto end = hostport.find(']');
+    if (end == std::string::npos) {
+      return uri;
+    }
+    host = hostport.substr(1, end - 1);
+    if (end + 1 < hostport.size() && hostport[end + 1] == ':') {
+      port = hostport.substr(end + 2);
+    }
+  }
+  else {
+    auto colon = hostport.rfind(':');
+    if (colon != std::string::npos && colon + 1 < hostport.size() &&
+        std::all_of(hostport.begin() + colon + 1, hostport.end(),
+                    [](char c) { return c >= '0' && c <= '9'; })) {
+      host = hostport.substr(0, colon);
+      port = hostport.substr(colon + 1);
+    }
+    else {
+      host = hostport;
+    }
+  }
+  host = util::toLower(host);
+  for (const auto& rule : urlRewriteRules) {
+    if (host == rule.host && (rule.port.empty() || port == rule.port)) {
+      return rule.target + normalized.substr(authorityEnd);
+    }
+  }
+  return uri;
+}
 
 bool parse(UriStruct& result, const std::string& uri)
 {

@@ -77,6 +77,9 @@ FileEntry::FileEntry(std::string path, int64_t length, int64_t offset,
       requested_(true),
       uniqueProtocol_(false)
 {
+  for (auto& uri : uris_) {
+    uri = uri::rewriteLocalUrl(uri);
+  }
 }
 
 FileEntry::FileEntry()
@@ -498,8 +501,9 @@ InputIterator findRequestByUri(InputIterator first, InputIterator last,
 }
 } // namespace
 
-bool FileEntry::removeUri(const std::string& uri)
+bool FileEntry::removeUri(const std::string& sourceUri)
 {
+  auto uri = util::percentEncodeMini(uri::rewriteLocalUrl(sourceUri));
   auto itr = std::find(spentUris_.begin(), spentUris_.end(), uri);
   if (itr == spentUris_.end()) {
     itr = std::find(uris_.begin(), uris_.end(), uri);
@@ -541,7 +545,7 @@ size_t FileEntry::setUris(const std::vector<std::string>& uris)
 
 bool FileEntry::addUri(const std::string& uri)
 {
-  std::string peUri = util::percentEncodeMini(uri);
+  std::string peUri = util::percentEncodeMini(uri::rewriteLocalUrl(uri));
   if (uri_split(nullptr, peUri.c_str()) == 0) {
     uris_.push_back(peUri);
     return true;
@@ -553,7 +557,7 @@ bool FileEntry::addUri(const std::string& uri)
 
 bool FileEntry::insertUri(const std::string& uri, size_t pos)
 {
-  std::string peUri = util::percentEncodeMini(uri);
+  std::string peUri = util::percentEncodeMini(uri::rewriteLocalUrl(uri));
   if (uri_split(nullptr, peUri.c_str()) != 0) {
     return false;
   }

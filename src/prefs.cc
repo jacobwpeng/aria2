@@ -441,6 +441,7 @@ PrefPtr PREF_FTP_PROXY = makePref("ftp-proxy");
 PrefPtr PREF_ALL_PROXY = makePref("all-proxy");
 // values: comma separated hostname or domain
 PrefPtr PREF_NO_PROXY = makePref("no-proxy");
+PrefPtr PREF_URL_REWRITE = makePref("url-rewrite");
 // values: get | tunnel
 PrefPtr PREF_PROXY_METHOD = makePref("proxy-method");
 PrefPtr PREF_HTTP_PROXY_USER = makePref("http-proxy-user");

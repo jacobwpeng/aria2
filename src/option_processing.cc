@@ -45,6 +45,7 @@
 #include "OptionHandlerFactory.h"
 #include "OptionHandler.h"
 #include "util.h"
+#include "uri.h"
 #include "message.h"
 #include "Exception.h"
 #include "a2io.h"
@@ -279,6 +280,8 @@ error_code::Value option_processing(Option& op, bool standalone,
     op.setParent(confOption);
     oparser->parse(op, cmdstream);
     oparser->parse(op, options);
+    // Rules are process-wide and loaded only after config and CLI parsing.
+    uri::configureUrlRewrite(op.get(PREF_URL_REWRITE));
   }
   catch (OptionHandlerException& e) {
     global::cerr()->printf("%s", e.stackTrace().c_str());

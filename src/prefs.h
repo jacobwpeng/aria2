@@ -393,6 +393,8 @@ extern PrefPtr PREF_FTP_PROXY;
 extern PrefPtr PREF_ALL_PROXY;
 // values: comma separated hostname or domain
 extern PrefPtr PREF_NO_PROXY;
+// Repeatable startup-only HOST[:PORT]=HTTP(S)_ORIGIN URL rewrite rules.
+extern PrefPtr PREF_URL_REWRITE;
 // values: get | tunnel
 extern PrefPtr PREF_PROXY_METHOD;
 extern PrefPtr PREF_HTTP_PROXY_USER;

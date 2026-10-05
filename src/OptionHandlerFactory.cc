@@ -52,6 +52,17 @@ std::vector<OptionHandler*> OptionHandlerFactory::createOptionHandlers()
                                           V_ERROR};
   // General Options
   {
+    OptionHandler* op(new CumulativeOptionHandler(
+        PREF_URL_REWRITE,
+        "Rewrite matching download hosts to an HTTP(S) origin. Repeat this "
+        "option for multiple rules; first match wins. Restart to apply changes.",
+        NO_DEFAULT_VALUE, "\n", "HOST[:PORT]=HTTP(S)_ORIGIN"));
+    op->addTag(TAG_ADVANCED);
+    op->addTag(TAG_HTTP);
+    op->setCumulative(true);
+    handlers.push_back(op);
+  }
+  {
     OptionHandler* op(new BooleanOptionHandler(PREF_ALLOW_OVERWRITE,
                                                TEXT_ALLOW_OVERWRITE, A2_V_FALSE,
                                                OptionHandler::OPT_ARG));

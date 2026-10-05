@@ -4,12 +4,14 @@
 
 #include "InorderURISelector.h"
 #include "util.h"
+#include "uri.h"
 
 namespace aria2 {
 
 class FileEntryTest : public CppUnit::TestFixture {
 
   CPPUNIT_TEST_SUITE(FileEntryTest);
+  CPPUNIT_TEST(testLocalUrlRewrite);
   CPPUNIT_TEST(testRemoveURIWhoseHostnameIs);
   CPPUNIT_TEST(testExtractURIResult);
   CPPUNIT_TEST(testGetRequest);
@@ -25,7 +27,13 @@ class FileEntryTest : public CppUnit::TestFixture {
   CPPUNIT_TEST_SUITE_END();
 
 public:
-  void setUp() {}
+  void testLocalUrlRewrite();
+  void setUp()
+  {
+    uri::configureUrlRewrite("81.71.15.87:45244=http://localhost:5244\n"
+                            "list.hk.jacobwpeng.com=http://localhost:5244\n");
+  }
+  void tearDown() { uri::configureUrlRewrite(""); }
 
   void testRemoveURIWhoseHostnameIs();
   void testExtractURIResult();
@@ -42,6 +50,23 @@ public:
 };
 
 CPPUNIT_TEST_SUITE_REGISTRATION(FileEntryTest);
+
+void FileEntryTest::testLocalUrlRewrite()
+{
+  const std::string source = "https://list.hk.jacobwpeng.com/d/a%2Fb?x=%2B+B";
+  const std::string local = "http://localhost:5244/d/a%2Fb?x=%2B+B";
+  FileEntry entry("/tmp/file", 0, 0, {source});
+  CPPUNIT_ASSERT_EQUAL(local, entry.getRemainingUris().front());
+  CPPUNIT_ASSERT(entry.removeUri(source));
+  CPPUNIT_ASSERT(entry.getRemainingUris().empty());
+  CPPUNIT_ASSERT(entry.addUri(source));
+  CPPUNIT_ASSERT_EQUAL(local, entry.getRemainingUris().front());
+  CPPUNIT_ASSERT(entry.insertUri("http://81.71.15.87:45244/first", 0));
+  CPPUNIT_ASSERT_EQUAL(std::string("http://localhost:5244/first"),
+                       entry.getRemainingUris().front());
+  CPPUNIT_ASSERT_EQUAL((size_t)1, entry.setUris({source}));
+  CPPUNIT_ASSERT_EQUAL(local, entry.getRemainingUris().front());
+}
 
 namespace {
 std::shared_ptr<FileEntry> createFileEntry()

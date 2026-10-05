@@ -12,6 +12,7 @@ namespace aria2 {
 class RequestTest : public CppUnit::TestFixture {
 
   CPPUNIT_TEST_SUITE(RequestTest);
+  CPPUNIT_TEST(testLocalUrlRewrite);
   CPPUNIT_TEST(testSetUri1);
   CPPUNIT_TEST(testSetUri2);
   CPPUNIT_TEST(testSetUri7);
@@ -28,6 +29,13 @@ class RequestTest : public CppUnit::TestFixture {
   CPPUNIT_TEST_SUITE_END();
 
 public:
+  void setUp()
+  {
+    uri::configureUrlRewrite("81.71.15.87:45244=http://localhost:5244\n"
+                            "list.hk.jacobwpeng.com=http://localhost:5244\n");
+  }
+  void tearDown() { uri::configureUrlRewrite(""); }
+  void testLocalUrlRewrite();
   void testSetUri1();
   void testSetUri2();
   void testSetUri7();
@@ -44,6 +52,27 @@ public:
 };
 
 CPPUNIT_TEST_SUITE_REGISTRATION(RequestTest);
+
+void RequestTest::testLocalUrlRewrite()
+{
+  Request req;
+  CPPUNIT_ASSERT(req.setUri("https://user:pass@list.hk.jacobwpeng.com/d/a%2Fb"
+                             "?sign=A%2B+B#frag"));
+  CPPUNIT_ASSERT_EQUAL(std::string("http://localhost:5244/d/a%2Fb?sign=A%2B+B#frag"),
+                       req.getUri());
+  CPPUNIT_ASSERT_EQUAL(std::string("http://localhost:5244/d/a%2Fb?sign=A%2B+B"),
+                       req.getCurrentUri());
+  CPPUNIT_ASSERT_EQUAL(std::string("localhost"), req.getHost());
+  CPPUNIT_ASSERT_EQUAL((uint16_t)5244, req.getPort());
+  CPPUNIT_ASSERT(req.getUsername().empty());
+  CPPUNIT_ASSERT(req.getPassword().empty());
+  CPPUNIT_ASSERT(req.redirectUri("https://81.71.15.87:45244/redirect?x=%2F"));
+  CPPUNIT_ASSERT_EQUAL(std::string("http://localhost:5244/redirect?x=%2F"),
+                       req.getCurrentUri());
+  CPPUNIT_ASSERT(req.resetUri());
+  CPPUNIT_ASSERT_EQUAL(std::string("http://localhost:5244/d/a%2Fb?sign=A%2B+B"),
+                       req.getCurrentUri());
+}
 
 void RequestTest::testSetUri1()
 {

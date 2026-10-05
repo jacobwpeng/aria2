@@ -1,4 +1,6 @@
 #include "uri.h"
+#include <utility>
+#include "DlAbortEx.h"
 
 #include <cppunit/extensions/HelperMacros.h>
 
@@ -9,6 +11,8 @@ namespace uri {
 class UriTest : public CppUnit::TestFixture {
 
   CPPUNIT_TEST_SUITE(UriTest);
+  CPPUNIT_TEST(testRewriteLocalUrl);
+  CPPUNIT_TEST(testConfigureUrlRewrite);
   CPPUNIT_TEST(testSetUri1);
   CPPUNIT_TEST(testSetUri2);
   CPPUNIT_TEST(testSetUri3);
@@ -40,6 +44,14 @@ class UriTest : public CppUnit::TestFixture {
   CPPUNIT_TEST_SUITE_END();
 
 public:
+  void setUp()
+  {
+    configureUrlRewrite("81.71.15.87:45244=http://localhost:5244\n"
+                        "list.hk.jacobwpeng.com=http://localhost:5244\n");
+  }
+  void tearDown() { configureUrlRewrite(""); }
+  void testRewriteLocalUrl();
+  void testConfigureUrlRewrite();
   void testSetUri1();
   void testSetUri2();
   void testSetUri3();
@@ -71,6 +83,78 @@ public:
 };
 
 CPPUNIT_TEST_SUITE_REGISTRATION(UriTest);
+
+void UriTest::testRewriteLocalUrl()
+{
+  const std::pair<std::string, std::string> cases[] = {
+      {"http://81.71.15.87:45244/d/a%2Fb?sign=A%2B+B&x=1#frag",
+       "http://localhost:5244/d/a%2Fb?sign=A%2B+B&x=1#frag"},
+      {"https://LIST.HK.JACOBWPENG.COM:443/d/中文 空格",
+       "http://localhost:5244/d/中文 空格"},
+      {"ftp://user:pass@list.hk.jacobwpeng.com:123/file",
+       "http://localhost:5244/file"},
+      {"custom+scheme://list.hk.jacobwpeng.com?x=%00",
+       "http://localhost:5244?x=%00"},
+      {"http://list.hk.jacobwpeng.com", "http://localhost:5244"},
+      {"http://81.71.15.87:45244", "http://localhost:5244"},
+      {"h\tttp://list.hk.jacobwpeng.com/a\r\nb\x7f?x=1",
+       "http://localhost:5244/ab?x=1"},
+      {std::string("http://list.hk.jacobwpeng.com/a\0b", 33),
+       "http://localhost:5244/ab"},
+      {"http://81.71.15.87:45245/file", "http://81.71.15.87:45245/file"},
+      {"http://81.71.15.87:045244/file", "http://81.71.15.87:045244/file"},
+      {"http://81.71.15.87/file", "http://81.71.15.87/file"},
+      {"http://list.hk.jacobwpeng.com.evil/file",
+       "http://list.hk.jacobwpeng.com.evil/file"},
+      {"http://list.hk.jacobwpeng.com@evil/file",
+       "http://list.hk.jacobwpeng.com@evil/file"},
+      {"http://evil/file?url=http://list.hk.jacobwpeng.com/file",
+       "http://evil/file?url=http://list.hk.jacobwpeng.com/file"},
+      {"http://[::1]:5244/file", "http://[::1]:5244/file"},
+      {"http://localhost:5244/file?x=%2F", "http://localhost:5244/file?x=%2F"},
+      {"http://example.com/a\tb", "http://example.com/a\tb"},
+      {"magnet:?xt=urn:btih:123", "magnet:?xt=urn:btih:123"},
+      {"/tmp/list.hk.jacobwpeng.com/file", "/tmp/list.hk.jacobwpeng.com/file"},
+      {"1http://list.hk.jacobwpeng.com/file",
+       "1http://list.hk.jacobwpeng.com/file"},
+      {"http://", "http://"}, {"", ""}};
+  for (const auto& entry : cases) {
+    auto rewritten = rewriteLocalUrl(entry.first);
+    CPPUNIT_ASSERT_EQUAL(entry.second, rewritten);
+    CPPUNIT_ASSERT_EQUAL(rewritten, rewriteLocalUrl(rewritten));
+  }
+}
+
+void UriTest::testConfigureUrlRewrite()
+{
+  configureUrlRewrite("");
+  CPPUNIT_ASSERT_EQUAL(std::string("http://list.hk.jacobwpeng.com/file"),
+                       rewriteLocalUrl("http://list.hk.jacobwpeng.com/file"));
+  configureUrlRewrite(" # comment\n SOURCE.TEST:81 = http://localhost:5255/ \r\n"
+                      "source.test=https://mirror.invalid:7443\n"
+                      "[2001:db8::1]:123=http://localhost:5233\n");
+  CPPUNIT_ASSERT_EQUAL(std::string("http://localhost:5255/file?x=%2F#frag"),
+                       rewriteLocalUrl("https://SOURCE.TEST:81/file?x=%2F#frag"));
+  const std::string expected = "https://mirror.invalid:7443/file?x=%2F#frag";
+  CPPUNIT_ASSERT_EQUAL(expected, rewriteLocalUrl("http://source.test/file?x=%2F#frag"));
+  CPPUNIT_ASSERT_EQUAL(expected, rewriteLocalUrl(expected));
+  CPPUNIT_ASSERT_EQUAL(std::string("http://localhost:5233/file"),
+                       rewriteLocalUrl("http://[2001:db8::1]:123/file"));
+  const char* invalid[] = {
+      "missing-separator", "=http://localhost:5244", "source.test=",
+      "source.test=ftp://localhost:5244", "source.test=http://localhost:5244/path",
+      "source.test=http://localhost:5244?query", "source.test=http://localhost:5244#frag",
+      "source.test=http://user:pass@localhost:5244", "source.test=http://localhost:0",
+      "source.test=http://localhost:65536", "source.test:0=http://localhost:5244",
+      "source.test:65536=http://localhost:5244", "*.test=http://localhost:5244",
+      "http://source.test=http://localhost:5244", "source.test=http://source.test",
+      "source.test=http://next.test\nnext.test=http://localhost:5244",
+      "source.test=http://localhost:5244\nSOURCE.TEST=http://localhost:5233"};
+  for (const auto& rule : invalid) {
+    CPPUNIT_ASSERT_THROW(configureUrlRewrite(rule), DlAbortEx);
+    CPPUNIT_ASSERT_EQUAL(expected, rewriteLocalUrl("http://source.test/file?x=%2F#frag"));
+  }
+}
 
 void UriTest::testSetUri1()
 {

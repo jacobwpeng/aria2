@@ -84,7 +84,7 @@ std::string removeFragment(const std::string& uri)
 bool Request::setUri(const std::string& uri)
 {
   supportsPersistentConnection_ = true;
-  uri_ = uri;
+  uri_ = uri::rewriteLocalUrl(uri);
   return parseUri(uri_);
 }
 
@@ -148,7 +148,7 @@ bool Request::redirectUri(const std::string& uri)
 
 bool Request::parseUri(const std::string& srcUri)
 {
-  currentUri_ = removeFragment(srcUri);
+  currentUri_ = removeFragment(uri::rewriteLocalUrl(srcUri));
   uri::UriStruct us;
   if (uri::parse(us, currentUri_)) {
     us_.swap(us);

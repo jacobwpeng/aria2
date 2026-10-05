@@ -67,6 +67,15 @@ struct UriStruct {
 
 void swap(UriStruct& lhs, UriStruct& rhs);
 
+// Replace the process-wide rule table from newline-separated
+// HOST[:PORT]=HTTP(S)_ORIGIN entries. Empty input disables rewriting.
+// Invalid/duplicate/chained rules throw, leaving the previous table intact.
+void configureUrlRewrite(const std::string& rules);
+
+// Rewrite configured download hosts, preserving the URL suffix verbatim.
+// Unmatched URLs are returned unchanged, including control characters.
+std::string rewriteLocalUrl(const std::string& uri);
+
 // Splits URI uri into components and stores them into result.  On
 // success returns true. Otherwise returns false and result is
 // undefined.

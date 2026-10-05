@@ -33,6 +33,7 @@
  */
 /* copyright --> */
 #include "download_helper.h"
+#include "uri.h"
 
 #include <algorithm>
 #include <sstream>
@@ -482,6 +483,10 @@ void createRequestGroupForUri(
   }
   else {
     nargs = uris;
+  }
+  // Rewrite before protocol detection, including command-line and session URIs.
+  for (auto& uri : nargs) {
+    uri = uri::rewriteLocalUrl(uri);
   }
   if (!ignoreForceSequential &&
       option->get(PREF_FORCE_SEQUENTIAL) == A2_V_TRUE) {
